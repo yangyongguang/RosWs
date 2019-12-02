@@ -525,7 +525,17 @@ void Segment::splitAndMerger()
 void Segment::mergeLine()
 {
     int numLine = lines_.size();
-    if (numLine <= 1) return;
+    if (numLine == 0) return;
+    if (numLine == 1)
+    {
+        auto it = lines_.begin();
+        auto it_slope = linesSlopes_.begin();
+        if (it_slope->first > max_slope_)
+        {
+            lines_.erase(it);
+            linesSlopes_.erase(it_slope);
+        }
+    }
 
     std::list<Segment::Line>::iterator firstLineIter = lines_.begin();
     std::list<Segment::LocalLine>::iterator firstSlopeIter = linesSlopes_.begin();
@@ -605,12 +615,22 @@ void Segment::mergeLine()
     auto it = lines_.begin();
     auto it_slope = linesSlopes_.begin();
     LocalLine currLine = std::make_pair(0, -sensor_height_);
+
     for (; it != lines_.end();)
     {
         // if (it->second.d - it->first.d > long_threshold_)
         //     is_long_line = true;
         // double max_start = ((1 - 0.4) / (120 - 3.4)) * (it->first.d - 3.4);
-
+        // if (std::abs(it_slope->first) >= 0.15 && it->first.d < 4.0)
+        // {
+        //     printf("\n\n\n\n\n\nslope %f\n", it_slope->first);
+        //     it->first.print();
+        //     printf("---->");
+        //     it->second.print();
+        //     printf("\nmax_slope_ %f\n", max_slope_);
+        // }
+        // printf("\n\nlines_.size %ld\n", lines_.size());
+        // printf("lineSlopes_.size %ld\n", linesSlopes_.size());
         if (std::abs(it_slope->first) > max_slope_ ||
             std::abs(currLine.first * it->first.d + currLine.second - it->first.z) > max_start_height_)
         {
@@ -624,20 +644,44 @@ void Segment::mergeLine()
             //     printf("slope %f\n", it_slope->first);
 
             // }
+
             lines_.erase(it++);
             linesSlopes_.erase(it_slope++);
+
         }
         else
         {
             ++it;
             currLine = *it_slope;
             ++it_slope;
-            /*bug*///currLine = *it_slope;// 保留上一个对呀的 currLine 而非是删除的 currLine 这里是个 bug
+            //currLine = *it_slope;// 保留上一个对呀的 currLine 而非是删除的 currLine 这里是个 bug
 
             // curr_ground_height = it->second.z;
         }    
-
+        // printf("after lines_.size %ld\n", lines_.size());
+        // printf("after lineSlopes_.size %ld\n", linesSlopes_.size());
     }
+
+    // it = lines_.begin();
+    // it_slope = linesSlopes_.begin();
+    // for (; it != lines_.end(); ++it)
+    // {
+    //     // if (it->first.d < 7 && std::abs(it_slope->first) > max_slope_)
+    //     // {
+    //     //    printf("\n\n\n\n\n\nslope : %f  %f\n", it_slope->first, it_slope->second);
+    //     //    it->first.print();
+    //     //    it->second.print();
+    //     // }
+    //     double slope = (it->second.z - it->first.z) / (it->second.d - it->first.d);
+    //     if (std::abs(slope) >= max_slope_ && it->first.d < 10.0)
+    //     {
+    //         printf("\n\n\n\n\n\nslope %f\n", slope);
+    //         it->first.print();
+    //         printf("---->");
+    //         it->second.print();
+    //         printf("\n");
+    //     }
+    // }
 }
 
 void Segment::splitAndMerger(const int start_idx, const int end_idx)

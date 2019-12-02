@@ -3,6 +3,7 @@
 GroundSegmentation::GroundSegmentation(ros::Publisher & line_pub,
                                        ros::Publisher & points_pub,
                                        ros::Publisher & circles_pub,
+                                       ros::Publisher & texts_pub,
                                        const GroundSegmentationParams & params):
                         params_(params),
                         segments_(params_.n_segments, Segment(params_.n_bins,
@@ -36,6 +37,7 @@ GroundSegmentation::GroundSegmentation(ros::Publisher & line_pub,
     marker_pub = line_pub;
     point_pub = points_pub;
     circle_pub = circles_pub;
+    text_pub = texts_pub;
     //########################################################################
     
     // line_list.action = visualization_msgs::Marker::ADD;
@@ -65,7 +67,8 @@ public:
         obstacle_pub_ = nh.advertise<sensor_msgs::PointCloud>(obstacle_topic, 1, latch);
         line_topic_ = nh.advertise<visualization_msgs::Marker>(line_topic, 1, latch);   
         point_topic_ = nh.advertise<visualization_msgs::Marker>("point_topic", 1, latch);  
-        circle_topic_ = nh.advertise<visualization_msgs::Marker>("circle_pub", 1, latch);   
+        circle_topic_ = nh.advertise<visualization_msgs::Marker>("circle_pub", 1, latch);  
+        text_topic_ = nh.advertise<visualization_msgs::MarkerArray>("text_topic", 1, latch); 
     }
 
     void scanCallBack(const sensor_msgs::PointCloud2 cloud2)
@@ -75,7 +78,7 @@ public:
         //std::cout << "point size :" << cloud.points.size() << std::endl;
         // code start from here
 
-        GroundSegmentation segmenter(line_topic_, point_topic_, circle_topic_, params_);
+        GroundSegmentation segmenter(line_topic_, point_topic_, circle_topic_, text_topic_,params_);
 
         // labels all cloud points to be ground of not
         std::vector<int> labels;
@@ -111,6 +114,7 @@ private:
     ros::Publisher line_topic_;
     ros::Publisher point_topic_;
     ros::Publisher circle_topic_;
+    ros::Publisher text_topic_;
     GroundSegmentationParams params_;
 
 
@@ -283,8 +287,8 @@ void GroundSegmentation::visualizeLine(const PointCloud & cloud, std::list<Point
     line_res_vis.ns = "lines";
     line_res_vis.action = visualization_msgs::Marker::ADD;
     line_res_vis.pose.orientation.w = 1.0;
-    line_res_vis.scale.x = 0.05;
-    line_res_vis.scale.y = 0.05;
+    line_res_vis.scale.x = 0.02;
+    line_res_vis.scale.y = 0.02;
 
     line_res_vis.color.a = 1.0;
     line_res_vis.color.g = 1.0;
@@ -396,16 +400,66 @@ void GroundSegmentation::visualizeLine(const PointCloud & cloud, std::list<Point
     typedef std::pair<geometry_msgs::Point, geometry_msgs::Point> PointLine;
     */
 
-   for (auto it = lines.begin(); it != lines.end(); ++it)
-   {
-       line_res_vis.points.emplace_back(it->first);
-       line_res_vis.points.emplace_back(it->second);    
-   }
+    // long sum = 0;
+    // for (auto it = segments_.begin(); it != segments_.end(); ++it)
+    // {
+    //     sum += (it->getLineSize());
+    // }
+
+    // printf("\n\n\n\nline size %ld\n", sum);
+    // printf("vis line size %ld\n", lines.size());
+
+
+    // for (auto it = lines.begin(); it != lines.end();++it)
+    // {
+    //     double d1 = sqrt(it->first.x * it->first.x + it->first.y * it->first.y);
+    //     double d2 = sqrt(it->second.x * it->second.x + it->second.y * it->second.y); 
+        
+    //     double slope = (it->second.z - it->first.z) / (d2 - d1);
+    //     if (slope >= params_.max_slope && d1 < 10)
+    //     {
+    //         printf("\n\n\n\n\n\nslope %f\n", slope);
+    //         printf("(%f,%f) ---> (%f,%f)\n", d1, it->first.z, d2, it->second.z);
+    //         printf("\n");
+    //     }
+    // }
+
+    for (auto it = lines.begin(); it != lines.end(); ++it)
+    {
+        line_res_vis.points.emplace_back(it->first);
+        line_res_vis.points.emplace_back(it->second);    
+    }
 
     marker_pub.publish(line_res_vis);
     // marker_pub.publish(line_list);
     // std::cout << "after line res vis has point " << line_res_vis.points.size() << " points " << std:: endl;
 
+    // 显示数字的信息工具
+    // visualization_msgs::Marker text;
+    // text.header = cloud.header;
+    // text.ns = "lines";
+    // text.action =  visualization_msgs::Marker::ADD;
+    // text.pose.orientation.w = 1.0;
+    
+    // text.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+    // text.scale.z = 0.1;
+    // text.color.b = 0.8;
+    // text.color.g = 0.8;
+    // text.color.r = 0.8;
+
+    // text.color.a = 1;
+
+    // geometry_msgs::Pose pose;
+    int id = 0;
+    for (auto it = lines.begin(); it != lines.end(); ++it)
+    {
+        visualization_msgs::Marker text;
+        addTextMarker(cloud.header, text, *it, id);
+        texts_vis.markers.emplace_back(text);
+        ++id;
+    }
+    text_pub.publish(texts_vis);    
+    //////
 }
 
 geometry_msgs::Point GroundSegmentation::minZPointTo3d(const Bin::MinZPoint & mzpoint, const double & angle)
@@ -454,7 +508,7 @@ void GroundSegmentation::getLines(std::list<PointLine> *lines)
     // 多线程
     std::vector<std::thread> thread_vec(params_.n_threads);
 
-    std::chrono::high_resolution_clock::time_point start_fit = std::chrono::high_resolution_clock::now();
+    // std::chrono::high_resolution_clock::time_point start_fit = std::chrono::high_resolution_clock::now();
     for (int idx = 0; idx < params_.n_threads; ++idx)
     {
         const unsigned int start_idx = params_.n_segments / params_.n_threads * idx;
@@ -469,8 +523,8 @@ void GroundSegmentation::getLines(std::list<PointLine> *lines)
         it->join();
     }
 
-    std::chrono::high_resolution_clock::time_point end_fit = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> fp_ms = end_fit - start_fit;
+    // std::chrono::high_resolution_clock::time_point end_fit = std::chrono::high_resolution_clock::now();
+    // std::chrono::duration<double, std::milli> fp_ms = end_fit - start_fit;
     // std::cout << "getLines took about " << fp_ms.count() << " ms" << std::endl;
     // std::cout << "getLines has " << lines->size() << " points\n";
 }
@@ -484,7 +538,7 @@ void GroundSegmentation::lineFitThread(const unsigned int & start_idx,
     //
     const bool visualize = lines;
     const double seg_step = 2 * M_PI / params_.n_segments;
-    double angle = -M_PI + start_idx * seg_step;
+    double angle = -M_PI + start_idx * seg_step + seg_step / 2;
     for (int idx = start_idx; idx < end_idx; ++idx)
     {
         // segments_[idx].fitSegmentLines();   
@@ -769,6 +823,43 @@ int GroundSegmentation::getBinIdxFromDist(const double & d)
     //             params_.hSensor, params_.theta_start, params_.angle_resolution);
     // assert(idxRes >= 0 && idxRes < params_.n_bins);
     return idxRes;
+}
+
+void GroundSegmentation::addTextMarker(const std_msgs::Header & header, 
+                       visualization_msgs::Marker & text,
+                       const PointLine & line,
+                       const int & id
+                       )
+{
+    text.header = header;
+    text.ns = "lines";
+    text.action =  visualization_msgs::Marker::ADD;
+    text.pose.orientation.w = 0.3;
+    
+    text.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+    text.scale.z = 0.1;
+    text.color.b = 0;
+    text.color.g = 1;
+    text.color.r = 1;
+    text.id = id;
+    text.color.a = 1;
+
+    geometry_msgs::Pose pose;
+
+    pose.position.x = (line.first.x + line.second.x) / 2;
+    pose.position.y = (line.first.y + line.second.y) / 2;
+    pose.position.z = (line.first.z + line.second.z) / 2;
+
+    std::ostringstream str;
+    double slope = (line.first.z - line.second.z) / 
+            (sqrt(line.first.x * line.first.x + line.first.y * line.first.y) - 
+                sqrt(line.second.x * line.second.x + line.second.y * line.second.y));
+    
+    // str << line.first.x << " " << line.first.y << " "<< line.second.x <<" "<< line.second.y 
+    str << "(k:" << slope <<")"<< " (z:" << line.first.z << ")" << " (d:" << sqrt(line.first.x * line.first.x +
+                    line.second.y * line.second.y) << ")";
+    text.pose = pose;
+    text.text = str.str();
 }
 
 int main(int argc, char** argv)

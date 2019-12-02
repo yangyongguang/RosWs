@@ -8,7 +8,7 @@
 #include <iostream>
 #include <chrono>
 #include <thread>
-
+#include <ostream>
 // for visualzie
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
@@ -34,13 +34,13 @@ struct GroundSegmentationParams{
     n_segments(360),
     max_dist_to_line(0.15),
     max_slope(0.35),  // 控制斜率， 斜率是直线拟合求出来的
-    n_threads(1),
+    n_threads(8),
     max_error_square(0.01),
     long_threshold(2.0),
     max_long_height(0.2),
     max_start_height(0.3),
     sensor_height(1.73),
-    line_search_angle(0.3),
+    line_search_angle(0.2),
     //###########
     r_max_bin(2),
     r_min_bin(0.05),
@@ -115,6 +115,7 @@ public:
     GroundSegmentation(ros::Publisher & line_pub, 
                        ros::Publisher & point_pubs,
                        ros::Publisher & circles_pub,
+                       ros::Publisher & texts_pub,
                        const GroundSegmentationParams & params = GroundSegmentationParams());
     // 全局地图
     std::vector<Segment> segments_;
@@ -134,12 +135,14 @@ public:
     ros::Publisher marker_pub;
     ros::Publisher point_pub;
     ros::Publisher circle_pub;
+    ros::Publisher text_pub;
 
     visualization_msgs::Marker line_list;   
     visualization_msgs::Marker point_cmp;
     visualization_msgs::Marker line_res_vis;
     visualization_msgs::Marker inserted_bin_point_vis;
     visualization_msgs::Marker circle_ref_vis;
+    visualization_msgs::MarkerArray texts_vis;
 
     // 分割函数   19423264
     void segment(const PointCloud & cloud, std::vector<int> * segmentation);
@@ -189,7 +192,14 @@ public:
 
     
     int getBinIdxFromDist(const double & d);
-    
+
+    void addTextMarker(const std_msgs::Header & header, 
+                       visualization_msgs::Marker & text,
+                       const PointLine & line,
+                       const int & id = 0
+                       );
+    // 添加数字信息的工具
+        
 };
 
 // class rvizPublisher
@@ -203,4 +213,3 @@ public:
 // }
 
 #endif /*GROUNDREMOVE*/
-

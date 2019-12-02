@@ -2,6 +2,7 @@
 #include <iostream>
 #include "segment.h"
 #include <cmath>
+#include <list>
 typedef std::pair<double, double> lineParam;
 
 struct point
@@ -29,18 +30,32 @@ int main()
     // printf("cos(60 / 180 * M_PI) %f\n", cos(60. / 180 * M_PI));
     // std::cout << "test code finished !" << std::endl;   
 
-    while(1)
-    { 
-        int idxRes = 0;
-        double d;
-        std::cin >> d;
-        double hSensor = 1.73;
-        double theta_start = 65.1277;
-        double angle_resolution = 0.41;
-        printf("atan2(d, hSensor) %f\n", atan2(d, hSensor) * 180 / M_PI);
-        idxRes = (atan2(d, hSensor) * 180 / M_PI - theta_start) / angle_resolution;
-        printf("idxRes %d\n", idxRes);
+    // while(1)
+    // { 
+    //     int idxRes = 0;
+    //     double d;
+    //     std::cin >> d;
+    //     double hSensor = 1.73;
+    //     double theta_start = 65.1277;
+    //     double angle_resolution = 0.41;
+    //     printf("atan2(d, hSensor) %f\n", atan2(d, hSensor) * 180 / M_PI);
+    //     idxRes = (atan2(d, hSensor) * 180 / M_PI - theta_start) / angle_resolution;
+    //     printf("idxRes %d\n", idxRes);
+    // }
+    std::list<int> l = {1,2,3,4,5,6,7,8,9};
+    for (auto it = l.begin(); it != l.end();)
+    {
+        if (*it == 3)
+            l.erase(it++);
+        else
+            ++it;
     }
+
+    for (auto it = l.begin(); it != l.end(); ++it)
+    {
+        printf("%d ", *it);
+    }
+    printf("\n");
     return 0;
 }
 

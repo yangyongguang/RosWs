@@ -91,6 +91,7 @@ public:
 
                  
     // Segment & operator=(Segment &);
+    inline long getLineSize() const {return lines_.size();}
     inline Bin& operator[](const size_t & index){return bins_[index];}
 
     inline std::vector<Bin>::iterator begin(){return bins_.begin();}
