@@ -24,33 +24,37 @@
 struct GroundSegmentationParams{
     GroundSegmentationParams():
     visualize(true),
-    // r_min_square(0.3 * 0.3),
-    r_min_square(3.4 * 3.4),
+    // r_min_square(3 * 3),
+    r_min_square(3.8 * 3.8),
     // r_max_square(20 * 20),
     r_max_square(120 * 120),
     // n_bins(30),
-    n_bins(80),
+    n_bins(120),
     // n_segments(180),
-    n_segments(120),
+    n_segments(360),
     max_dist_to_line(0.15),
-    max_slope(0.25),  // 控制斜率， 斜率是直线拟合求出来的
+    max_slope(0.35),  // 控制斜率， 斜率是直线拟合求出来的
     n_threads(1),
     max_error_square(0.01),
     long_threshold(2.0),
     max_long_height(0.2),
-    max_start_height(0.35),
+    max_start_height(0.3),
     sensor_height(1.73),
-    line_search_angle(0.2),
+    line_search_angle(0.3),
     //###########
     r_max_bin(2),
     r_min_bin(0.05),
     /*另外添加的参数*/
-    tHmin(-1.9),
-    tHmax(-0.5),
+    tHmin(-2.15),
+    tHmax(1.0),
     tHDiff(0.4),
     hSensor(1.73),    
     //###########
-    min_split_dist(0.1)
+    min_split_dist(0.1),
+    theta_start(65.1277),  // 90 - 24.8723
+    theta_end(2),
+    // angle_resolution(0.41)
+    angle_resolution(0.41)
     { }
     /*另外添加的参数*/
     double tHmin;
@@ -91,6 +95,12 @@ struct GroundSegmentationParams{
     int n_threads;
 
     double min_split_dist;
+
+    double theta_start;
+
+    double theta_end;
+
+    double angle_resolution;
 };
 
 typedef sensor_msgs::PointCloud PointCloud;
@@ -102,7 +112,10 @@ class GroundSegmentation
 {
 public:
     GroundSegmentationParams params_;
-    GroundSegmentation(ros::Publisher & line_pub, const GroundSegmentationParams & params = GroundSegmentationParams());
+    GroundSegmentation(ros::Publisher & line_pub, 
+                       ros::Publisher & point_pubs,
+                       ros::Publisher & circles_pub,
+                       const GroundSegmentationParams & params = GroundSegmentationParams());
     // 全局地图
     std::vector<Segment> segments_;
 
@@ -119,9 +132,14 @@ public:
     std::atomic<int> count_;
     // 发布线段用的
     ros::Publisher marker_pub;
+    ros::Publisher point_pub;
+    ros::Publisher circle_pub;
+
     visualization_msgs::Marker line_list;   
     visualization_msgs::Marker point_cmp;
     visualization_msgs::Marker line_res_vis;
+    visualization_msgs::Marker inserted_bin_point_vis;
+    visualization_msgs::Marker circle_ref_vis;
 
     // 分割函数   19423264
     void segment(const PointCloud & cloud, std::vector<int> * segmentation);
@@ -162,6 +180,15 @@ public:
                                 unsigned int start_idx,
                                 unsigned int end_idx
                                 );
+
+    void assignCluster(std::vector<int> * segmentation);
+
+    void assignClusterThread(const unsigned int &start_index,
+                                             const unsigned int &end_index,
+                                             std::vector<int> *segmentation);
+
+    
+    int getBinIdxFromDist(const double & d);
     
 };
 

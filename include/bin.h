@@ -38,8 +38,8 @@ public:
     Bin();
     Bin(const Bin& bin);
 
-    void addPoint(const PointXYZ & pointxyz);
-    void addPoint(const double &d, const double &z);
+    void addPoint(const PointXYZ & pointxyz, const int & ptID);
+    void addPoint(const double &d, const double &z, const int & ptID);
 
     MinZPoint getMinZPoint();
 
@@ -54,6 +54,7 @@ public:
 
     inline void updateHeight(const double & z){height = z;}
     inline void updateSmoothed(const double & s){smoothed = s;}
+    inline void updateSmoothedZ(const double & s){min_z = s;}
     inline double getHeight(){return height;}
     inline void updateHDiff(const double & h){hDiff = h;}
     inline double getSmoothed() const {return smoothed;}
@@ -61,6 +62,8 @@ public:
     inline void updateGround(){isGround = true;hGround = height;}
     inline bool isThisGround()const {return isGround;}
     inline double getHGround()const {return hGround;}
+public:
+    std::atomic<int> pointID;
 private:
     std::atomic<bool> has_point;
     std::atomic<double> min_z;
@@ -80,6 +83,7 @@ private:
     float hGround;
     //float minZ;  min_z;
     std::atomic<double> isGround;
+    // std::atomic<int> pointID;
 };
 
 #endif

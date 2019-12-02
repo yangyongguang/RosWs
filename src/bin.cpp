@@ -9,6 +9,7 @@ Bin::Bin()
     std::atomic_init(&has_point, false);
     // min_z = std::numeric_limits<double>::max();
     std::atomic_init(&min_z, std::numeric_limits<double>::max());
+    std::atomic_init(&pointID, -1);
     isGround = false;
 }
 
@@ -20,14 +21,14 @@ Bin::Bin(const Bin& bin)
 }
 
 
-void Bin::addPoint(const PointXYZ & pointxyz)
+void Bin::addPoint(const PointXYZ & pointxyz, const int & ptID)
 {
     has_point = true;
     const double d = sqrt(pointxyz.x * pointxyz.z + pointxyz.y * pointxyz.y);
-    addPoint(d, pointxyz.z);
+    addPoint(d, pointxyz.z, ptID);
 }
 
-void Bin::addPoint(const double &d, const double &z)
+void Bin::addPoint(const double &d, const double &z, const int & ptID)
 {
     // if(!has_point)
     // {
@@ -37,6 +38,7 @@ void Bin::addPoint(const double &d, const double &z)
     // }
 
     has_point = true;
+    pointID = ptID;
     if (z < min_z)
     {
         min_z = z;

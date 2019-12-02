@@ -30,7 +30,10 @@ Segment::Segment(const unsigned int& n_bins,
                  const double& tHmax,
                  const double& tHDiff,
                  const double& hSensor,
-                 const double& min_split_dist):
+                 const double& min_split_dist,
+                 const double& theta_start,
+                 const double& theta_end,
+                 const double& angle_resolution):
 				 bins_(n_bins),
 				 max_slope_(max_slope),
                  max_error_(max_error),
@@ -46,7 +49,10 @@ Segment::Segment(const unsigned int& n_bins,
                  tHDiff_(tHDiff),
                  hSensor_(hSensor),
                  min_split_dist(min_split_dist),
-                 binsIdx(n_bins)
+                 binsIdx(n_bins),
+                 theta_start(theta_start),
+                 theta_end(theta_end),
+                 angle_resolution(angle_resolution)
                  {}
 
 
@@ -336,6 +342,48 @@ void Segment::updateHeightAndGround()
     }
 }
 
+// void gaussSmoothenLine(const double & sigma, const int &samples);
+
+void Segment::gaussSmoothenLine(const double & sigma, const int &samples)
+{
+    std::vector<double> kernel(samples);
+    double mean = samples / 2;
+
+    double sum = 0;
+    for (int x = 0; x < samples; ++x)
+    {
+        kernel[x] = exp(-0.5 * (pow((x - mean) / sigma, 2.0))) / (2 * M_PI * sigma * sigma);
+        // kernel[x] = exp(-0.5 * (pow((x - mean) / sigma, 2.0))) / (sigma * sqrt(2 * M_PI));
+        sum += kernel[x];
+    }
+
+    // Normalize the kernel
+    for (int x = 0; x < samples; ++x)
+    {
+        kernel[x] /= sum;
+    }
+
+    assert(kernel.size() == samples);
+
+    int sampleSide = samples / 2;
+    unsigned long ubound = bins_.size();
+
+    for (long i = 0; i < ubound; ++i)
+    {
+        double smoothed = 0;
+        for (long j = i - sampleSide; j <= i + sampleSide; ++j)
+        {
+            if (j >= 0 && j < ubound)
+            {
+                int sampleWeightIndex = sampleSide + (j - i);
+                smoothed += kernel[sampleWeightIndex] * bins_[j].getHeight();
+            }
+        }
+        bins_[i].updateSmoothedZ(smoothed);
+    }    
+}
+
+
 void Segment::gaussSmoothen(const double & sigma, const int &samples)
 {
     std::vector<double> kernel(samples);
@@ -377,7 +425,31 @@ void Segment::gaussSmoothen(const double & sigma, const int &samples)
 
 void Segment::computeHDiffAdjacentCell()
 {
-    for (int i = 0; i <  bins_.size(); ++i)
+    // for (int i = 0; i <  bins_.size(); ++i)
+    // {
+    //     if (i == 0)
+    //     {
+    //         double hD = bins_[i].getHeight() - bins_[i + 1].getHeight();
+    //         bins_[i].updateHDiff(hD);
+    //     }
+    //     else if (i == (bins_.size() - 1))
+    //     {
+    //         double hD = bins_[i].getHeight() - bins_[i - 1].getHeight();
+    //         bins_[i].updateHDiff(hD);
+    //     }
+    //     else
+    //     {
+    //         double preHD = bins_[i].getHeight() - bins_[i - 1].getHeight();
+    //         double postHD = bins_[i].getHeight() - bins_[i + 1].getHeight();
+    //         if (preHD > postHD)
+    //             bins_[i].updateHDiff(preHD);
+    //         else
+    //             bins_[i].updateHDiff(postHD);
+    //     }
+        
+    // }
+
+    for (int i = 0; i < bins_.size(); ++i)
     {
         if (i == 0)
         {
@@ -398,7 +470,6 @@ void Segment::computeHDiffAdjacentCell()
             else
                 bins_[i].updateHDiff(postHD);
         }
-        
     }
 }
 
@@ -437,6 +508,7 @@ void Segment::splitAndMerger()
 {
     // 分段直线提取算法
     int numBin = bins_.size();
+    // 高斯滤波最低点
     splitAndMerger(0, numBin);
     // 得到的 segment 的 line 是按顺序的， 递归的规则就是这样
     // for (auto it = lines_.begin(); it != lines_.end(); ++it)
@@ -449,7 +521,7 @@ void Segment::splitAndMerger()
     // 填充直线段, split and merge 的 merge 部分
     mergeLine();
 }
-
+// 合并且过滤一部分拟合错误的直线
 void Segment::mergeLine()
 {
     int numLine = lines_.size();
@@ -461,7 +533,7 @@ void Segment::mergeLine()
     ++secondLineIter;
     std::list<Segment::LocalLine>::iterator secondSlopeIter = linesSlopes_.begin();
     ++secondSlopeIter;
-    double bin_step = (120 - 3.4) / (bins_.size());
+    // double bin_step = (120 - 2.8) / (bins_.size());
 
     // printf("\n\n\n\n\n\n\n");
     // for(auto it = lines_.begin(); it != lines_.end(); ++it)
@@ -480,10 +552,12 @@ void Segment::mergeLine()
         // printf("\n\n");
         // 距离太近不需要填充
         // printf("\nsecondLineIter->first.d - firstLineIter->second.d = %f", secondLineIter->first.d - firstLineIter->second.d);
-        const int binIdxFirst = getPointBinIdx(firstLineIter->second.d, bin_step);
-        const int binIdxSecond = getPointBinIdx(secondLineIter->first.d, bin_step);
+        // const int binIdxFirst = getPointBinIdx(firstLineIter->second.d, bin_step);
+        const int binIdxFirst = getBinIdxFromDist(firstLineIter->second.d);
+        // const int binIdxSecond = getPointBinIdx(secondLineIter->first.d, bin_step);
+        const int binIdxSecond = getBinIdxFromDist(secondLineIter->first.d);
         // printf("\n binIdxFirst %d, binIdxSecond %d ", binIdxFirst, binIdxSecond);
-        if (std::abs(binIdxFirst - binIdxSecond) >= 4) continue;
+        if (std::abs(binIdxFirst - binIdxSecond) >= 5 || std::abs((secondLineIter->first.d - firstLineIter->second.d > 3))) continue;
         // double expect_z = secondLineIter->first.d * firstSlopeIter->first + firstSlopeIter->second;
         // 预测的与实际的高度相差不大的情况下， 插入一个线段
         LocalLine vec1, vec2;
@@ -499,7 +573,7 @@ void Segment::mergeLine()
         // if (std::abs(slope - firstSlopeIter->first) < 0.1)
         // 夹角越大值越小
         // printf("cos theate %f (%f)\n", std::abs(cosAngle), cos(5.0 / 180 * M_PI));
-        if (std::abs(cosAngle) > cos(5.0 / 180 * M_PI))
+        if (std::abs(cosAngle) > cos(10.0 / 180 * M_PI))
         {
             // printf("\n binIdxFirst %d, binIdxSecond %d ", binIdxFirst, binIdxSecond);
             // printf("\ninsert a  line of (%f, %f) --> (%f, %f)\n", 
@@ -508,7 +582,11 @@ void Segment::mergeLine()
             //                 secondLineIter->first.d,
             //                 secondLineIter->first.z);
             lines_.insert(secondLineIter, std::make_pair(firstLineIter->second, secondLineIter->first));
+            double slope = (secondLineIter->first.z - firstLineIter->second.z) / (secondLineIter->first.d - firstLineIter->second.d);
+            double cutb = firstLineIter->second.z - slope * firstLineIter->second.d;
+            linesSlopes_.insert(secondSlopeIter, std::make_pair(slope, cutb));
             ++firstLineIter;
+            ++firstSlopeIter;            
         }
     }
     // printf("after insert the line \n");
@@ -520,6 +598,46 @@ void Segment::mergeLine()
     //     printf("\nbinIdx %d -->  %d\n", getPointBinIdx(it->first.d, bin_step), getPointBinIdx(it->second.d, bin_step));
     // }
     // printf("\n\n\n\n\n\n\n");
+
+    // 过滤不需要的直线
+    bool is_long_line = false;
+    double curr_ground_height  = -sensor_height_;
+    auto it = lines_.begin();
+    auto it_slope = linesSlopes_.begin();
+    LocalLine currLine = std::make_pair(0, -sensor_height_);
+    for (; it != lines_.end();)
+    {
+        // if (it->second.d - it->first.d > long_threshold_)
+        //     is_long_line = true;
+        // double max_start = ((1 - 0.4) / (120 - 3.4)) * (it->first.d - 3.4);
+
+        if (std::abs(it_slope->first) > max_slope_ ||
+            std::abs(currLine.first * it->first.d + currLine.second - it->first.z) > max_start_height_)
+        {
+            // if (it->first.d < 8)
+            // {
+            //     printf("\n\n\n\n\ncurrLine.first * it->first.d + currLine.second - it->first.z %f\n", 
+            //                         currLine.first * it->first.d + currLine.second - it->first.z);
+            //     printf("\nerase a line\n");
+            //     it->first.print();
+            //     it->second.print();
+            //     printf("slope %f\n", it_slope->first);
+
+            // }
+            lines_.erase(it++);
+            linesSlopes_.erase(it_slope++);
+        }
+        else
+        {
+            ++it;
+            currLine = *it_slope;
+            ++it_slope;
+            /*bug*///currLine = *it_slope;// 保留上一个对呀的 currLine 而非是删除的 currLine 这里是个 bug
+
+            // curr_ground_height = it->second.z;
+        }    
+
+    }
 }
 
 void Segment::splitAndMerger(const int start_idx, const int end_idx)
@@ -544,7 +662,7 @@ void Segment::splitAndMerger(const int start_idx, const int end_idx)
     if (numPoint <= 1) return;
 
     // 端点检测方法
-    if (numPoint >= 2)
+    if (numPoint > 2)
     {
         for (int idx = start_idx; idx != end_idx; ++idx)
         {
@@ -568,15 +686,16 @@ void Segment::splitAndMerger(const int start_idx, const int end_idx)
 
     if (numPoint == 2)
     {
-        // 俩个点的情况
-        
-        LocalLine local_line = endpointFit(current_partition_points);
-        Line new_line = localLineToLine(local_line, current_partition_points);
-        lines_.push_back(new_line);
+        // 俩个点的情况, 是不太可信的线段
+        return;        
+        // LocalLine local_line = endpointFit(current_partition_points);
+        // Line new_line = localLineToLine(local_line, current_partition_points);
+        // lines_.push_back(new_line);
     } 
     else
     {
         double dist_max = 0;
+        double gap_max = 0; // 最大的间隙 可以映射后求
         int dist_max_idx = 1;
         Bin::MinZPoint firstPoint, secondPoint;
         firstPoint = current_partition_points.front();
@@ -592,10 +711,23 @@ void Segment::splitAndMerger(const int start_idx, const int end_idx)
         /*
         点到直线的距离
         */
+        int gap_idx = -1;
         double tmp = sqrt(1 + local_line.first * local_line.first);
+        int num_bin_gap = 3;
+        bool gap_condition = false;
         for (int idx = start_idx; idx < end_idx; ++idx)
         {
-            if (!bins_[idx].hasPoint()) continue;
+            if (num_bin_gap <= 0 )
+            {
+                gap_condition = true;
+                gap_idx = idx - 3;
+                break;
+            }
+            if (!bins_[idx].hasPoint()) 
+            {
+                --num_bin_gap;
+                continue;
+            }
             Bin::MinZPoint currMinZPoint = bins_[idx].getMinZPoint();
             double dist = std::abs(local_line.first * (currMinZPoint).d - 
                     (currMinZPoint).z + local_line.second) / tmp;
@@ -604,10 +736,10 @@ void Segment::splitAndMerger(const int start_idx, const int end_idx)
                 dist_max = dist;
                 dist_max_idx = idx;
             }
+            num_bin_gap = 3;
         }
-
         // printf("dist_max : %f, dist_max_idx : %d\n", dist_max, dist_max_idx);
-        if (dist_max < min_split_dist)
+        if (!gap_condition && dist_max < min_split_dist)
         {
             // 添加成型的点
             lines_.push_back(localLineToLine(local_line, current_partition_points));
@@ -627,8 +759,18 @@ void Segment::splitAndMerger(const int start_idx, const int end_idx)
             // {
                 // 如果是分段开始的点的误差最大， 那么可能导致死递归 比如 14-80， 14点为最大点
                 // 会被分割为 14 - 14, 14 - 80 需要进行特殊处理
-                splitAndMerger(start_idx, dist_max_idx);
-                splitAndMerger(dist_max_idx, end_idx);
+                // printf("star_idx, gap_idx, dist_max_idx, end_idx, %d %d %d %d\n", start_idx, gap_idx, dist_max_idx, end_idx);
+                // dist_max_idx = (dist_max >= min_split_dist) ? dist_max_idx : gap_idx;
+                if (gap_condition)
+                {
+                    splitAndMerger(start_idx, gap_idx);
+                    splitAndMerger(gap_idx + 3, end_idx);
+                }
+                else
+                {                
+                    splitAndMerger(start_idx, dist_max_idx);
+                    splitAndMerger(dist_max_idx, end_idx);
+                }
             // }   
         }        
      
@@ -647,6 +789,7 @@ Segment::LocalLine Segment::endpointFit(const std::list<Bin::MinZPoint> & curr_l
     return line_res;
 }
 
+// 平均获取点的方式
 int Segment::getPointBinIdx(const double & dist, const double & bin_step, double r_min)
 {
     if (dist < r_min && dist > 120) return -1;
@@ -654,6 +797,82 @@ int Segment::getPointBinIdx(const double & dist, const double & bin_step, double
     return binIdx; 
 }
 
+// 根据角度获取点的方式
+int Segment::getBinIdxFromDist(const double & d)
+{
+    int idxRes = 0;
+    double angle_res = angle_resolution;
+    if (d >= 20)
+        angle_res /= 2;
+    idxRes = (atan2(d, hSensor_) * 180 / M_PI - theta_start) / angle_res;
+    assert(idxRes >= 0 && idxRes < bins_.size());
+    return idxRes;
+}
+
+void Segment::filterLine()
+{
+    // lines_
+    // linesSlopes_
+    if (lines_.size() <= 1) return;
+    std::list<Segment::Line>::iterator firstLineIter = lines_.begin();
+    std::list<Segment::LocalLine>::iterator firstSlopeIter = linesSlopes_.begin();
+    std::list<Segment::Line>::iterator secondLineIter = lines_.begin();
+    ++secondLineIter;
+    std::list<Segment::LocalLine>::iterator secondSlopeIter = linesSlopes_.begin();
+    ++secondSlopeIter;
+
+
+    for (;secondLineIter != lines_.end(); ++firstLineIter, ++secondLineIter, ++firstSlopeIter, ++secondSlopeIter)
+    {
+        // firstLineIter->second.print();
+        // printf(" ---->  ");
+        // secondLineIter->first.print();
+        // printf("\n\n");
+        // 距离太近不需要填充
+        // printf("\nsecondLineIter->first.d - firstLineIter->second.d = %f", secondLineIter->first.d - firstLineIter->second.d);
+        // const int binIdxFirst = getPointBinIdx(firstLineIter->second.d, bin_step);
+        // const int binIdxSecond = getPointBinIdx(secondLineIter->first.d, bin_step);
+        // printf("\n binIdxFirst %d, binIdxSecond %d ", binIdxFirst, binIdxSecond);
+        // if (std::abs(binIdxFirst - binIdxSecond) >= 4) continue;
+        // double expect_z = secondLineIter->first.d * firstSlopeIter->first + firstSlopeIter->second;
+        // 预测的与实际的高度相差不大的情况下， 插入一个线段
+        LocalLine vec1, vec2;
+        vec1.first = firstLineIter->second.d - firstLineIter->first.d;
+        vec1.second = firstLineIter->second.z - firstLineIter->first.z;
+
+        vec2.first = secondLineIter->first.d - firstLineIter->second.d;
+        vec2.second = secondLineIter->first.z - firstLineIter->second.z;
+
+        double cosAngle = (vec1.first * vec2.first + vec1.second * vec2.second) / (
+                sqrt(vec1.first * vec1.first + vec1.second * vec1.second) * 
+                sqrt(vec2.first * vec2.first + vec2.second * vec2.second));
+        // if (std::abs(slope - firstSlopeIter->first) < 0.1)
+        // 夹角越大值越小
+        // printf("cos theate %f (%f)\n", std::abs(cosAngle), cos(5.0 / 180 * M_PI));
+        if (std::abs(cosAngle) > cos(5.0 / 180 * M_PI))
+        {
+
+        }
+    }
+}
+
+
+double Segment::verticalDistanceToLine(const double &d, const double &z) 
+{
+    static const double kMargin = 0.2;
+    double distance = -1;
+    for (auto it = lines_.begin(); it != lines_.end(); ++it) 
+    {
+        if (it->first.d - kMargin < d && it->second.d + kMargin > d) 
+        {
+            const double delta_z = it->second.z - it->first.z;
+            const double delta_d = it->second.d - it->first.d;
+            const double expected_z = (d - it->first.d)/delta_d *delta_z + it->first.z;
+            distance = std::fabs(z - expected_z);
+        }
+    }
+    return distance;
+}
 
 
 

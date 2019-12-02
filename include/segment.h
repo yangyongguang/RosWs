@@ -57,6 +57,8 @@ private:
     // std::mutex mutex_lock;
 
     std::vector<int> binsIdx;
+    // 
+    double theta_start, theta_end, angle_resolution;
     
 
 public:
@@ -82,7 +84,10 @@ public:
                  const double& tHmax,
                  const double& tHDiff,
                  const double& hSensor,
-                 const double& min_split_dist);
+                 const double& min_split_distm,
+                 const double& theta_start,
+                 const double& theta_end,
+                 const double& angle_resolution);
 
                  
     // Segment & operator=(Segment &);
@@ -104,8 +109,10 @@ public:
 
     /*后来添加的*/
     void updateHeightAndGround();
-    
+
     void gaussSmoothen(const double & sigma, const int &samples);
+
+    void gaussSmoothenLine(const double & sigma, const int &samples);
 
     void computeHDiffAdjacentCell();
 
@@ -125,10 +132,19 @@ public:
     // merge Line 如果合理的话
     void mergeLine();
 
+    // 挑选出合适的 line
+    void filterLine();
+
     // 输入距离 给出所属的 bin 的 索引
     int getPointBinIdx(const double & dist, 
                         const double & bin_step, 
-                        double r_min = 3.4);
+                        double r_min = 2.8);
 
+
+    double verticalDistanceToLine(const double &d, const double &z);
+
+    // 根据角分辨率来划分 BinIdx 的方法
+    int getBinIdxFromDist(const double & d);
+    
 }; 
 #endif

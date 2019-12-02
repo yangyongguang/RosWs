@@ -1,6 +1,9 @@
 #include "groundRemove.h"
 
-GroundSegmentation::GroundSegmentation(ros::Publisher & line_pub, const GroundSegmentationParams & params):
+GroundSegmentation::GroundSegmentation(ros::Publisher & line_pub,
+                                       ros::Publisher & points_pub,
+                                       ros::Publisher & circles_pub,
+                                       const GroundSegmentationParams & params):
                         params_(params),
                         segments_(params_.n_segments, Segment(params_.n_bins,
                                           params_.max_slope,
@@ -15,7 +18,10 @@ GroundSegmentation::GroundSegmentation(ros::Publisher & line_pub, const GroundSe
                                           params_.tHmax,
                                           params_.tHDiff,
                                           params_.hSensor,
-                                          params.min_split_dist))
+                                          params.min_split_dist,
+                                          params_.theta_start,
+                                          params_.theta_end,
+                                          params_.angle_resolution))
                         // bin2PointIdx_(params_.n_segments, std::vector<int> (params_.n_bins, -1))
 {
     // 在使用 atiomic 的时候，初始化全部在 : 后实现， 不再括号内部实现， 原因还不知道
@@ -28,6 +34,8 @@ GroundSegmentation::GroundSegmentation(ros::Publisher & line_pub, const GroundSe
     //             params_.sensor_height);
     std::atomic_init(&count_, 0);
     marker_pub = line_pub;
+    point_pub = points_pub;
+    circle_pub = circles_pub;
     //########################################################################
     
     // line_list.action = visualization_msgs::Marker::ADD;
@@ -55,7 +63,9 @@ public:
         // nh_ = nh;
         ground_pub_ = nh.advertise<sensor_msgs::PointCloud>(ground_topic, 1, latch);
         obstacle_pub_ = nh.advertise<sensor_msgs::PointCloud>(obstacle_topic, 1, latch);
-        line_topic_ = nh.advertise<visualization_msgs::Marker>(line_topic, 1, latch);        
+        line_topic_ = nh.advertise<visualization_msgs::Marker>(line_topic, 1, latch);   
+        point_topic_ = nh.advertise<visualization_msgs::Marker>("point_topic", 1, latch);  
+        circle_topic_ = nh.advertise<visualization_msgs::Marker>("circle_pub", 1, latch);   
     }
 
     void scanCallBack(const sensor_msgs::PointCloud2 cloud2)
@@ -65,7 +75,7 @@ public:
         //std::cout << "point size :" << cloud.points.size() << std::endl;
         // code start from here
 
-        GroundSegmentation segmenter(line_topic_, params_);
+        GroundSegmentation segmenter(line_topic_, point_topic_, circle_topic_, params_);
 
         // labels all cloud points to be ground of not
         std::vector<int> labels;
@@ -99,6 +109,8 @@ private:
     ros::Publisher ground_pub_;
     ros::Publisher obstacle_pub_;
     ros::Publisher line_topic_;
+    ros::Publisher point_topic_;
+    ros::Publisher circle_topic_;
     GroundSegmentationParams params_;
 
 
@@ -114,6 +126,7 @@ private:
 void GroundSegmentation::insertPoints(const PointCloud & cloud)
 {
     // printParams();
+    // printf("insertPoints use %d threads\n", params_.n_threads);
     std::vector<std::thread> threads(params_.n_threads);
     int num_pre_thread = cloud.points.size() / params_.n_threads; 
 
@@ -197,7 +210,9 @@ void GroundSegmentation::insertPointThread(const PointCloud & cloud,
         if (range_square < params_.r_max_square && range_square > params_.r_min_square)
         {
             const double angle = std::atan2(point.y , point.x);
-            const unsigned int bin_idx = (range - r_min) / bin_step;
+            // 计算 binIdx
+            //const unsigned int bin_idx = (range - r_min) / bin_step;
+            const unsigned int bin_idx = getBinIdxFromDist(range);
             // double c = r_min - params_.r_min_bin - range;
             // unsigned int bin_idx = (-b + sqrt(b * b  - 4 * a * c)) / (2 * a);
             assert(bin_idx >= 0 && bin_idx < params_.n_bins);
@@ -212,7 +227,7 @@ void GroundSegmentation::insertPointThread(const PointCloud & cloud,
             // }
             const unsigned int segment_idx = (angle + M_PI) / segment_step;
             bin_index_[idx] = std::make_pair(segment_idx, bin_idx);
-            segments_[segment_idx == params_.n_segments? 0:segment_idx][bin_idx].addPoint(range, point.z);
+            segments_[segment_idx == params_.n_segments? 0:segment_idx][bin_idx].addPoint(range, point.z, idx);
             // std::cout << "segment_idx " << segment_idx <<"\n" << "bin_idx " << bin_idx << "\n";
             // std::cout << "segments_[segment_idx][bin_idx].hasPoint() " <<
             //              segments_[segment_idx][bin_idx].hasPoint() << "\n";
@@ -268,13 +283,43 @@ void GroundSegmentation::visualizeLine(const PointCloud & cloud, std::list<Point
     line_res_vis.ns = "lines";
     line_res_vis.action = visualization_msgs::Marker::ADD;
     line_res_vis.pose.orientation.w = 1.0;
-    line_res_vis.scale.x = 0.1;
-    line_res_vis.scale.y = 0.1;
+    line_res_vis.scale.x = 0.05;
+    line_res_vis.scale.y = 0.05;
 
     line_res_vis.color.a = 1.0;
     line_res_vis.color.g = 1.0;
 
     line_res_vis.type = visualization_msgs::Marker::LINE_LIST;
+
+    // 可视化插入的点
+    inserted_bin_point_vis.header = cloud.header;
+    inserted_bin_point_vis.ns = "lines";
+    inserted_bin_point_vis.action = visualization_msgs::Marker::ADD;
+    inserted_bin_point_vis.pose.orientation.w = 1.0;
+    inserted_bin_point_vis.scale.x = 0.1;
+    inserted_bin_point_vis.scale.y = 0.1;
+
+    inserted_bin_point_vis.color.a = 1.0;
+    inserted_bin_point_vis.color.g = 1.0;
+    inserted_bin_point_vis.color.b = 1.0;
+
+    inserted_bin_point_vis.type = visualization_msgs::Marker::POINTS;
+
+    // 可视化参考圆
+    circle_ref_vis.header = cloud.header;
+    circle_ref_vis.ns = "lines";
+    circle_ref_vis.action = visualization_msgs::Marker::ADD;
+    circle_ref_vis.pose.orientation.w = 1.0;
+    circle_ref_vis.scale.x = 0.1;
+    circle_ref_vis.scale.y = 0.1;
+
+    circle_ref_vis.color.a = 1.0;
+    circle_ref_vis.color.g = 1.0;
+    circle_ref_vis.color.r = 1.0;
+
+    circle_ref_vis.type = visualization_msgs::Marker::LINE_STRIP;    
+
+    
     // 结束可视化地面线段
     const double seg_step = 2 * M_PI / params_.n_segments;
     double detaX = (params_.r_max_bin - params_.r_min_bin) / (params_.n_bins - 1);
@@ -288,7 +333,25 @@ void GroundSegmentation::visualizeLine(const PointCloud & cloud, std::list<Point
             geometry_msgs::Point pt = minZPointTo3d(d, angle);
             point_cmp.points.push_back(pt);
         }
+
     }
+
+    for (int seg_idx= 0; seg_idx < params_.n_segments; ++seg_idx)
+    {
+        for (int bin_idx = 0; bin_idx < params_.n_bins; ++bin_idx)
+        {
+            geometry_msgs::Point pt;
+            if (!segments_[seg_idx][bin_idx].hasPoint())
+                continue;
+            auto cloudPt = cloud.points[segments_[seg_idx][bin_idx].pointID];
+            pt.x = cloudPt.x;
+            pt.y = cloudPt.y;
+            pt.z = cloudPt.z;
+            inserted_bin_point_vis.points.push_back(pt);
+        }
+    }
+
+    point_pub.publish(inserted_bin_point_vis);
     marker_pub.publish(point_cmp);
     // #############################################
     for (int seg_idx = 0; seg_idx < params_.n_segments; ++seg_idx)
@@ -324,7 +387,7 @@ void GroundSegmentation::visualizeLine(const PointCloud & cloud, std::list<Point
             // preBin = currBin;
         }        
     }
-    // 可视化 insert Point 的点
+    // 可视化 insert Point 的点线
     // marker_pub.publish(line_list);
 
     // 可视化线段结果
@@ -385,6 +448,7 @@ void GroundSegmentation::printParams()
 // 获取所得到的线段， 为了后面可视化调试使用
 void GroundSegmentation::getLines(std::list<PointLine> *lines)
 {
+    // printf("getLines use %d threads\n", params_.n_threads);
     bool visulize = lines;
     std::mutex line_mutex;
     // 多线程
@@ -606,6 +670,8 @@ void GroundSegmentation::segment(const PointCloud & cloud, std::vector<int> * se
         // std::cout << "outlierFilter finished \n";
         groundAndElevated(cloud, segmentation);
         // std::cout << "groundAndElevated finished \n";
+        std::list<PointLine> lines;
+        if (params_.visualize) visualizeLine(cloud, lines);
         /////////////////////////////////////////////////////  去地结束 //////////////////////////}
     }
     else
@@ -620,9 +686,90 @@ void GroundSegmentation::segment(const PointCloud & cloud, std::vector<int> * se
         if (params_.visualize) visualizeLine(cloud, lines);
 
         // 给点云分类
+        assignCluster(segmentation);
    }
 }
 
+void GroundSegmentation::assignCluster(std::vector<int> * segmentation)
+{
+  std::vector<std::thread> thread_vec(params_.n_threads);
+  const size_t cloud_size = segmentation->size();
+  for (unsigned int i = 0; i < params_.n_threads; ++i) {
+    const unsigned int start_index = cloud_size / params_.n_threads * i;
+    const unsigned int end_index = cloud_size / params_.n_threads * (i+1);
+    thread_vec[i] = std::thread(&GroundSegmentation::assignClusterThread, this,
+                                start_index, end_index, segmentation);
+  }
+  for (auto it = thread_vec.begin(); it != thread_vec.end(); ++it) {
+    it->join();
+  }
+
+}
+
+void GroundSegmentation::assignClusterThread(const unsigned int &start_index,
+                                             const unsigned int &end_index,
+                                             std::vector<int> *segmentation) 
+{
+    const double segment_step = 2 * M_PI / params_.n_segments;
+    for (unsigned int i = start_index; i < end_index; ++i)
+    {
+        Bin::MinZPoint point_2d = segment_coordinates_[i];
+        const int segment_index = bin_index_[i].first;
+        if (segment_index >= 0) 
+        {
+            double dist = segments_[segment_index].verticalDistanceToLine(point_2d.d, point_2d.z);
+            // Search neighboring segments.
+            int steps = 1;
+            // dist == -1 说明不再找到的 lines 的范围内
+            // 如果此处没有线段， 就在其领域搜索，搜索的角步长， 和搜索的角度
+            while (dist == -1 && steps * segment_step < params_.line_search_angle) 
+            {
+                // Fix indices that are out of bounds.
+                int index_1 = segment_index + steps;
+                while (index_1 >= params_.n_segments) index_1 -= params_.n_segments;
+                int index_2 = segment_index - steps;
+                while (index_2 < 0) index_2 += params_.n_segments;
+                // Get distance to neighboring lines.
+                // 看相邻的俩个曲线， 判断其距离
+                const double dist_1 = segments_[index_1].verticalDistanceToLine(point_2d.d, point_2d.z);
+                const double dist_2 = segments_[index_2].verticalDistanceToLine(point_2d.d, point_2d.z);
+                // Select larger distance if both segments return a valid distance.
+                if (dist_1 > dist) {
+                dist = dist_1;
+                }
+                if (dist_2 > dist) {
+                dist = dist_2;
+                }
+                ++steps;
+            }
+
+            // 每个点找直线， 这样快很多， 找到了就不找了
+            // 如果距离不是 -1, 且小于距离地面最近允许距离， 那么被分类为 1 ，也就是 1 代表地面
+
+            if (dist < params_.max_dist_to_line && dist != -1) 
+            {
+                segmentation->at(i) = 1;
+            }
+
+        }
+    }
+}
+
+int GroundSegmentation::getBinIdxFromDist(const double & d)
+{
+    int idxRes = 0;
+    double angle_resolution = params_.angle_resolution;
+    if (d >= 20)
+        angle_resolution /= 2;
+
+    idxRes = (atan2(d, params_.hSensor) * 180 / M_PI - params_.theta_start) / angle_resolution;
+    // printf("idxRes %d\n", idxRes);
+    // printf("d %f\n", d);
+    // printf("hSensor %f\ntheta_start %f\nangle_resolution %f\n", 
+    //             params_.hSensor, params_.theta_start, params_.angle_resolution);
+    // assert(idxRes >= 0 && idxRes < params_.n_bins);
+    return idxRes;
+}
 
 int main(int argc, char** argv)
 {
